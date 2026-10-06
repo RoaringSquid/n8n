@@ -1,0 +1,615 @@
+{
+  "name": "Sustainable Clothing Finder",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "weeksInterval": 2,
+              "triggerAtDay": [
+                6
+              ],
+              "triggerAtHour": 8,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "name": "Every Second Saturday",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Sessun: the new-in list is paginated (?p=1, 2, 3 ...). It had 4 pages (~70 products) when checked;\n// pages past the end come back empty, so a few spare pages are fetched to cover growth.\nconst sessunPages = [1, 2, 3, 4, 5, 6, 7, 8].map(p => ({\n  json: { shop: 'Sessun', gender: 'female', listing_url: `https://de.sessun.com/catalogue/neuheiten.html?p=${p}` },\n}));\n\nreturn [\n  ...sessunPages,\n  // Filippa K: the grid endpoint behind the \"Load more items\" button; sz=300 returns every new-in item in one request.\n  { json: { shop: 'Filippa K', gender: 'female', listing_url: 'https://www.filippa-k.com/on/demandware.store/Sites-FilippaK-Site/en_DE/Search-UpdateGrid?cgid=woman-new-in&start=0&sz=300' } },\n  { json: { shop: 'Filippa K', gender: 'male', listing_url: 'https://www.filippa-k.com/on/demandware.store/Sites-FilippaK-Site/en_DE/Search-UpdateGrid?cgid=man-new-in&start=0&sz=300' } },\n];\n"
+      },
+      "name": "Shop Listing Pages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        272,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.listing_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "name": "Fetch Listing Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        496,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const pages = $('Shop Listing Pages').all();\nconst found = new Map(); // product_url -> { shop, genders }\nconst base = 'https://www.filippa-k.com';\nconst absolute = (u) => (u.startsWith('http') ? u : base + u);\nconst fkLink = /href=\"((?:https:\\/\\/www\\.filippa-k\\.com)?\\/de\\/en\\/[a-z0-9-]+\\/[0-9]{5}-[0-9]{4}\\.html)\"/;\n\n// Filippa K: the listing comes from the shop's grid endpoint (the one behind \"Load more items\"),\n// which returns every new-in tile in one go. One tile = one product (colour); take each tile's own link.\nconst tileProducts = (html) => {\n  const urls = [];\n  for (const part of html.split(/<[^>]*class=\"product-tile\"[^>]*>/).slice(1)) {\n    const m = part.match(fkLink);\n    if (m) urls.push(absolute(m[1]));\n  }\n  return urls;\n};\n\nconst add = (url, shop, gender) => {\n  if (!found.has(url)) found.set(url, { shop, genders: new Set() });\n  if (gender) found.get(url).genders.add(gender);\n};\n\n$input.all().forEach((item, i) => {\n  const shop = pages[i] ? pages[i].json.shop : '';\n  const gender = pages[i] ? pages[i].json.gender : '';\n  const html = String(item.json.data || '');\n  if (shop === 'Sessun') {\n    const re = /href=\"(https:\\/\\/de\\.sessun\\.com\\/catalogue\\/[a-z0-9-]+\\/[a-z0-9-]+\\.html)\"/g;\n    let m;\n    while ((m = re.exec(html)) !== null) {\n      const url = m[1];\n      // skip size-variant duplicates like ...-m.html or ...-38.html\n      if (/-(xxs|xs|s|m|l|xl|xxl|tu|[0-9]{2})\\.html$/.test(url)) continue;\n      if (/\\/catalogue\\/(taschen|schmuck|schuhe|accessoires)\\//.test(url)) continue;\n      add(url, shop, gender);\n    }\n  } else {\n    const listed = tileProducts(html);\n    if (listed.length) {\n      new Set(listed).forEach(u => add(u, shop, gender));\n    } else {\n      // layout changed: keep every product link but leave gender blank rather than guess\n      const re = new RegExp(fkLink.source, 'g');\n      new Set([...html.matchAll(re)].map(m => absolute(m[1]))).forEach(u => add(u, shop, ''));\n    }\n  }\n});\n\n// a product found on both the women's and the men's list is unisex\nreturn [...found].map(([product_url, v]) => ({\n  json: { shop: v.shop, product_url, gender: v.genders.size > 1 ? 'unisex' : ([...v.genders][0] || '') }\n}));\n"
+      },
+      "name": "Extract Product Links",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "cachedResultName": "Sustainable Clothing Checks",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "operation": "read",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "value": 0
+        }
+      },
+      "name": "Read Checked Products",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        832,
+        352
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Rows already saved in the Google Sheet (empty sheet gives one blank item)\nconst checked = new Set(\n  $input.all()\n    .map(i => String(i.json.product_url || '').trim())\n    .filter(Boolean)\n);\n// Keep only product links that are not in the sheet yet\nreturn $('Extract Product Links').all().filter(i => !checked.has(String(i.json.product_url || '').trim()));\n"
+      },
+      "name": "Only Unchecked Products",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1056,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "maxItems": 100
+      },
+      "name": "Max 100 To Fetch",
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        1168,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.product_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+            }
+          ]
+        },
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 700
+            }
+          },
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "name": "Fetch Product Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        752,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const src = $('Only Unchecked Products').all();\nconst clean = (s) => String(s || '').replace(/<br\\s*\\/?>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\\s+/g, ' ').trim();\n\n// This workflow checks clothing. Accessories (bags, shoes, jewellery, homeware ...) are skipped, hats are kept\n// because they are made of the same fabrics as clothes.\nconst accessoryCategory = /^(sacs|chaussures|bijoux|pop-up|ceintures?|lunettes|accessoires|maroquinerie|petite-maroquinerie|foulards?|echarpes?|gants|chaussettes|parfums?|maison)/i;\nconst accessoryType = /(tasche|taschen|rucksack|shopper|clutch|portemonnaie|geldbeutel|pumps|ballerinas?|mokassins?|hausschuhe?|stiefel|stiefelette|sandalen?|sneakers?|schuhe?|loafers?|boots?|armband|halskette|kette|ohrringe?|ring|brosche|g(ü|u)rtel|schal|tuch|handschuhe?|socken?|brille|tasse|teller|kerzenhalter|vase|schale)$/i;\nconst hat = /(^|[^a-z])(hat|cap|beanie|beret|bucket|bonnet|chapeau|casquette|bob|hut|mutze|muetze|m(ü|u)tze|kappe|baskenm(ü|u)tze)([^a-z]|$)/i;\nconst isAccessory = (shop, html, url, name, typeWord) => {\n  const segs = url.split('/').filter(Boolean);\n  const slug = (shop === 'Sessun' ? segs[segs.length - 1] : segs[segs.length - 2] || '').replace(/\\.html$/, '').replace(/-/g, ' ');\n  if (hat.test(slug) || hat.test(name) || hat.test(typeWord)) return false;\n  if (shop === 'Sessun') {\n    const c = (html.match(/\"category\":\\s*\"([^\"]+)\"/) || [])[1] || '';\n    return accessoryCategory.test(c) || accessoryType.test(typeWord);\n  }\n  const c = (html.match(/\"category\":\"([A-Za-z][^\"]*\\/[^\"]*)\"/) || [])[1] || '';\n  return /\\/Accessories/i.test(c);\n};\n\nconst out = [];\n$input.all().forEach((item, i) => {\n  const meta = src[i] ? src[i].json : {};\n  const html = String(item.json.data || '');\n  let name = '';\n  let typeWord = '';\n  let materials = '';\n  let extra = '';\n  const t = html.match(/<title>([^<]*)<\\/title>/i);\n  if (t) {\n    const parts = clean(t[1]).split('|');\n    name = parts[0].trim();\n    if (meta.shop === 'Sessun' && parts.length > 2) typeWord = (parts[1] || '').trim(); // e.g. \"Tasche\", \"Kleid\"\n  }\n  if (isAccessory(meta.shop, html, String(meta.product_url || ''), name, typeWord)) return; // not clothing\n  if (meta.shop === 'Sessun') {\n    const comps = [...html.matchAll(/<p class=\"composition\">([\\s\\S]*?)<\\/p>/gi)].map(m => clean(m[1]));\n    materials = [...new Set(comps)].join(' | ');\n    const d = html.match(/itemprop=\"description\">([\\s\\S]*?)<\\/div>/i);\n    if (d) extra = clean(d[1]);\n  } else {\n    const mats = [...html.matchAll(/Material:<\\/span>([\\s\\S]*?)<\\/li>/gi)].map(m => clean(m[1]));\n    materials = [...new Set(mats)].join(' | ');\n    const certs = [...html.matchAll(/Certificate:<\\/span>([\\s\\S]*?)<\\/li>/gi)].map(m => clean(m[1]));\n    const d = html.match(/\"description\":\"([^\"]*)\"/);\n    extra = [d ? d[1] : '', [...new Set(certs)].join(' | ')].filter(Boolean).join(' Certificates: ');\n  }\n  if (!materials) return; // page did not load or has no material info; retry next run\n  out.push({ json: { shop: meta.shop, gender: meta.gender || '', product_url: meta.product_url, product_name: name, materials, details: extra.slice(0, 1500) } });\n});\nreturn out;\n"
+      },
+      "name": "Extract Product Details",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        976,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "maxItems": 80
+      },
+      "name": "Max 80 Per Run",
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        1168,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Product: {{ $json.product_name }} ({{ $json.shop }})\nMaterial composition: {{ $json.materials }}\nProduct details / certificates: {{ $json.details }}",
+        "hasOutputParser": true,
+        "messages": {
+          "messageValues": [
+            {
+              "message": "You are a textile sustainability expert. Decide whether a clothing item is made ONLY of sustainable materials, judging ONLY the materials that the product page actually declares: the composition line plus the certificates and material claims in the description. Never fail a product because trims, buttons, thread, zips, linings or other components are not listed, because shops do not normally publish them. Use common standards (e.g. GOTS, OCS, GRS, RWS, RMS, FSC, OEKO-TEX Made in Green, LWG, Textile Exchange preferred fibres).\n\nSustainable: cotton of any kind (conventional, organic, recycled or certified), wool of any kind (conventional, certified, recycled, mulesing-free), cashmere of any kind (conventional, certified, recycled), alpaca of any kind (conventional, certified, recycled), linen, hemp, yak hair/yak down and camel hair (low-impact natural fibres, sustainable even with no certificate), TENCEL/lyocell, FSC/EcoVero viscose, recycled polyester or polyamide, certified mohair (e.g. RMS), organic silk, LWG-certified leather.\nNot sustainable: virgin/conventional polyester, polyamide/nylon, acrylic, elastane/spandex, conventional viscose/modal, PU/PVC, mohair with no certification.\n\nRules: If any declared material, including small percentages such as 2% elastane, is not sustainable, return is_sustainable = false. If a declared material cannot be classified from what the page says (for example viscose with no certification or sustainable-source statement), return false. If no composition is given at all, return false and say the composition is missing. Do not invent facts: use only what the page text states.\n\nfibre_highlight: this marks cotton, wool, cashmere or alpaca of the better kind. Use a short label that names the fibre, type and standard.\n- Cotton: if the page explicitly says the cotton is organic (organic, biologisch, GOTS, OCS), recycled (GRS) or otherwise certified (e.g. Better Cotton), use a label such as 'Organic cotton (GOTS)', 'Organic cotton (OCS)', 'Recycled cotton (GRS)' or 'Certified cotton (Better Cotton)'.\n- Wool: if the page explicitly says the wool is certified (RWS, ZQ, or certified for traceability and animal welfare), recycled (recycled wool, NWool, GRS/RCS) or mulesing-free, use a label such as 'Certified wool (RWS)', 'Certified wool (traceable, animal welfare)', 'Recycled wool', or 'Mulesing-free wool'.\n- Cashmere: if the page explicitly says the cashmere is certified (e.g. Good Cashmere Standard, traceable) or recycled, use a label such as 'Certified cashmere (Good Cashmere Standard)' or 'Recycled cashmere'.\n- Alpaca: if the page explicitly says the alpaca is certified (e.g. Responsible Alpaca Standard, traceable) or recycled, use a label such as 'Certified alpaca (Responsible Alpaca Standard)' or 'Recycled alpaca'.\n- If the product has more than one of these, join the labels with ' + '.\nUse an empty string if the product has none of these fibres, if these fibres are plain or conventional with no such statement, or if the only certificate is OEKO-TEX Standard 100 (it covers chemical safety, not how the fibre was produced). Never infer it; only use what the page states.\n\nAnswer in English.\n"
+            }
+          ]
+        },
+        "batching": {
+          "batchSize": 5
+        }
+      },
+      "name": "Judge Materials",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        1200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-5-mini"
+        },
+        "options": {}
+      },
+      "name": "OpenAI Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        1216,
+        224
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\"type\": \"object\", \"properties\": {\"is_sustainable\": {\"type\": \"boolean\", \"description\": \"true only if EVERY declared material in the product is sustainable\"}, \"fibre_highlight\": {\"type\": \"string\", \"description\": \"Short label such as 'Organic cotton (GOTS)', 'Certified wool (RWS)', 'Recycled cashmere' or 'Certified alpaca (Responsible Alpaca Standard)' when the page states the cotton, wool, cashmere or alpaca is organic, recycled, certified or mulesing-free; empty string otherwise\"}, \"assessment\": {\"type\": \"string\", \"description\": \"One or two sentences explaining the verdict, naming any non-sustainable material\"}}, \"required\": [\"is_sustainable\", \"fibre_highlight\", \"assessment\"]}"
+      },
+      "name": "Verdict Format",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        1344,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "product_url"
+          ],
+          "schema": [
+            {
+              "id": "product_url",
+              "displayName": "product_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "shop",
+              "displayName": "shop",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "gender",
+              "displayName": "gender",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "product_name",
+              "displayName": "product_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "materials",
+              "displayName": "materials",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "is_sustainable",
+              "displayName": "is_sustainable",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "fibre_highlight",
+              "displayName": "fibre_highlight",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "assessment",
+              "displayName": "assessment",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "checked_at",
+              "displayName": "checked_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "run_date",
+              "displayName": "run_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "value": {
+            "assessment": "={{ $json.output.assessment }}",
+            "checked_at": "={{ $now.toISO() }}",
+            "fibre_highlight": "={{ $json.output.fibre_highlight }}",
+            "gender": "={{ $('Extract Product Details').item.json.gender }}",
+            "is_sustainable": "={{ $json.output.is_sustainable }}",
+            "materials": "={{ $('Extract Product Details').item.json.materials }}",
+            "product_name": "={{ $('Extract Product Details').item.json.product_name }}",
+            "product_url": "={{ $('Extract Product Details').item.json.product_url }}",
+            "run_date": "={{ $now.toFormat('yyyy-MM-dd') }}",
+            "shop": "={{ $('Extract Product Details').item.json.shop }}"
+          }
+        },
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "cachedResultName": "Sustainable Clothing Checks",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "operation": "appendOrUpdate",
+        "options": {
+          "cellFormat": "RAW"
+        },
+        "resource": "sheet",
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "value": 0
+        }
+      },
+      "name": "Save Result",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1552,
+        112
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Builds one email for the whole run: per brand, sustainable items first, then not sustainable.\n// Filippa K is split into Women / Men / Unisex sections, like the dashboard.\nconst DASHBOARD_URL = ''; // optional: link to your dashboard\nconst judged = $('Judge Materials').all();\nconst meta = $('Max 80 Per Run').all();\nconst esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;');\nconst rows = judged.map((j, i) => {\n  const m = meta[i] ? meta[i].json : {};\n  const o = j.json.output || {};\n  return { shop: m.shop || '', gender: m.gender || '', name: m.product_name || '', url: m.product_url || '', materials: m.materials || '', ok: o.is_sustainable === true || o.is_sustainable === 'true', fibre: o.fibre_highlight || '', note: o.assessment || '' };\n}).filter(r => r.url);\nif (!rows.length) return [];\n\nconst verdictBlocks = (list, showGender) => {\n  const block = (title, items, colour) => {\n    if (!items.length) return `<p style=\"color:#666;margin:4px 0 14px\">${title}: none this run</p>`;\n    const lines = items.sort((a, b) => a.name.localeCompare(b.name)).map(r => {\n      const tag = [showGender ? r.gender : '', r.fibre].filter(Boolean).map(esc).join(' · ');\n      return `<li style=\"margin:5px 0\"><a href=\"${esc(r.url)}\">${esc(r.name)}</a>${tag ? ` <span style=\"color:#666\">(${tag})</span>` : ''}<br><span style=\"color:#555;font-size:13px\">${esc(r.materials)}</span></li>`;\n    }).join('');\n    return `<h3 style=\"margin:14px 0 4px;color:${colour}\">${title} (${items.length})</h3><ul style=\"padding-left:18px;margin:0\">${lines}</ul>`;\n  };\n  return block('Sustainable', list.filter(r => r.ok), '#2e7d32') + block('Not sustainable', list.filter(r => !r.ok), '#b3261e');\n};\n\nconst brandHtml = (shop) => {\n  const mine = rows.filter(r => r.shop === shop);\n  if (!mine.length) return '';\n  let body = '';\n  if (shop === 'Filippa K') {\n    const groups = [['female', 'Women'], ['male', 'Men'], ['unisex', 'Unisex']];\n    const known = groups.map(g => g[0]);\n    groups.forEach(([key, title]) => {\n      const l = mine.filter(r => r.gender === key);\n      if (l.length) body += `<h2 style=\"margin:22px 0 0;font-size:18px\">${title} <span style=\"color:#666;font-weight:normal;font-size:14px\">${l.filter(r => r.ok).length} of ${l.length} pass</span></h2>` + verdictBlocks(l, false);\n    });\n    const rest = mine.filter(r => !known.includes(r.gender));\n    if (rest.length) body += `<h2 style=\"margin:22px 0 0;font-size:18px\">Other</h2>` + verdictBlocks(rest, false);\n  } else {\n    body = verdictBlocks(mine, true);\n  }\n  return `<h2 style=\"border-bottom:1px solid #ddd;padding-bottom:4px;margin-top:28px\">${esc(shop)}</h2>` + body;\n};\n\nconst today = new Date().toISOString().slice(0, 10);\nconst total = rows.length;\nconst yes = rows.filter(r => r.ok).length;\nconst html = `<div style=\"font-family:Arial,sans-serif;max-width:720px\">` +\n  `<h1 style=\"margin-bottom:2px\">Sustainable Clothing Finder</h1>` +\n  `<p style=\"color:#555;margin-top:0\">${today}: ${total} new products checked, ${yes} sustainable.` +\n  (DASHBOARD_URL ? ` <a href=\"${esc(DASHBOARD_URL)}\">Open dashboard</a>` : '') + `</p>` +\n  brandHtml('Sessun') + brandHtml('Filippa K') + `</div>`;\nreturn [{ json: { subject: `Sustainable clothing: ${yes} of ${total} new products pass (${today})`, html, total, yes } }];\n"
+      },
+      "name": "Build Run Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1776,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "emailType": "html",
+        "message": "={{ $json.html }}",
+        "operation": "send",
+        "options": {
+          "appendAttribution": false
+        },
+        "resource": "message",
+        "sendTo": "you@example.com",
+        "subject": "={{ $json.subject }}"
+      },
+      "name": "Email Run Summary",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        2000,
+        112
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every Second Saturday": {
+      "main": [
+        [
+          {
+            "node": "Shop Listing Pages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shop Listing Pages": {
+      "main": [
+        [
+          {
+            "node": "Fetch Listing Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Listing Page": {
+      "main": [
+        [
+          {
+            "node": "Extract Product Links",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Product Links": {
+      "main": [
+        [
+          {
+            "node": "Read Checked Products",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Checked Products": {
+      "main": [
+        [
+          {
+            "node": "Only Unchecked Products",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Only Unchecked Products": {
+      "main": [
+        [
+          {
+            "node": "Max 100 To Fetch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Max 100 To Fetch": {
+      "main": [
+        [
+          {
+            "node": "Fetch Product Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Product Page": {
+      "main": [
+        [
+          {
+            "node": "Extract Product Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Product Details": {
+      "main": [
+        [
+          {
+            "node": "Max 80 Per Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Max 80 Per Run": {
+      "main": [
+        [
+          {
+            "node": "Judge Materials",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Judge Materials": {
+      "main": [
+        [
+          {
+            "node": "Save Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Result": {
+      "main": [
+        [
+          {
+            "node": "Build Run Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Run Summary": {
+      "main": [
+        [
+          {
+            "node": "Email Run Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Judge Materials",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verdict Format": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Judge Materials",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Berlin"
+  }
+}

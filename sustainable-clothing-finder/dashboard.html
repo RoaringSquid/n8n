@@ -1,0 +1,281 @@
+<title>Sustainable Clothing Finder</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* Layout: sticky header with run + brand controls; two verdict columns side by side per brand, stacked on phones. */
+:root {
+  --bg: #f2f4f1;
+  --surface: #ffffff;
+  --surface-2: #e8ece6;
+  --fg: #1c2420;
+  --muted: #5d6a62;
+  --line: #d3dad1;
+  --ink: #26433a;        /* brand/accent: deep conifer */
+  --ink-fg: #ffffff;
+  --good: #1f7a45;
+  --good-bg: #dff1e4;
+  --bad: #a8362c;
+  --bad-bg: #f7e1de;
+  --badge: #7a5a12;
+  --badge-bg: #f6ecc9;
+  --font-display: "Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121815; --surface: #1b2420; --surface-2: #26312b; --fg: #e6ece7; --muted: #9aa8a0; --line: #324038;
+    --ink: #8fc9ad; --ink-fg: #0f1a15; --good: #6fd196; --good-bg: #1b3a29; --bad: #f0928a; --bad-bg: #3d211e;
+    --badge: #e7c76a; --badge-bg: #3b3216; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121815; --surface: #1b2420; --surface-2: #26312b; --fg: #e6ece7; --muted: #9aa8a0; --line: #324038;
+  --ink: #8fc9ad; --ink-fg: #0f1a15; --good: #6fd196; --good-bg: #1b3a29; --bad: #f0928a; --bad-bg: #3d211e;
+  --badge: #e7c76a; --badge-bg: #3b3216; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.45; padding-inline: 16px; padding-block: 0 48px; }
+.wrap { max-width: 1120px; margin-inline: auto; }
+header.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); padding-block: 16px 12px; border-bottom: 1px solid var(--line); display: grid; gap: 12px; }
+.title-row { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; }
+h1 { font-family: var(--font-display); font-weight: 700; font-size: 1.6rem; letter-spacing: -0.01em; margin: 0; text-wrap: balance; }
+.stamp { color: var(--muted); font-size: 0.8rem; font-family: var(--font-mono); }
+.controls { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+.tabs { display: flex; gap: 4px; background: var(--surface-2); padding: 3px; border-radius: 8px; }
+.tab { font: inherit; font-weight: 600; border: 0; background: transparent; color: var(--muted); padding: 7px 14px; border-radius: 6px; cursor: pointer; display: flex; gap: 8px; align-items: center; }
+.tab[aria-selected="true"] { background: var(--ink); color: var(--ink-fg); }
+.tab .n { font-family: var(--font-mono); font-weight: 500; font-size: 0.8rem; opacity: 0.85; }
+label.sel { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.06em; }
+select, .chip, .btn { font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+select { font-size: 0.9rem; text-transform: none; letter-spacing: 0; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { cursor: pointer; font-size: 0.85rem; padding: 5px 11px; }
+.chip[aria-pressed="true"] { background: var(--ink); color: var(--ink-fg); border-color: var(--ink); }
+.btn { cursor: pointer; font-size: 0.85rem; }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+main { padding-block: 20px; display: grid; gap: 20px; }
+.summary { display: flex; flex-wrap: wrap; gap: 6px 24px; align-items: baseline; }
+.summary strong { font-family: var(--font-display); font-size: 1.7rem; }
+.summary span { color: var(--muted); }
+.meter { height: 8px; border-radius: 4px; background: var(--bad-bg); overflow: hidden; flex-basis: 100%; }
+.meter i { display: block; height: 100%; background: var(--good); }
+.gsec { display: grid; gap: 14px; }
+.gsec + .gsec { margin-top: 18px; padding-top: 22px; border-top: 1px solid var(--line); }
+.gh { font-family: var(--font-display); font-size: 1.5rem; margin: 0; }
+.cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: start; }
+@media (max-width: 760px) { .cols { grid-template-columns: minmax(0, 1fr); } }
+.col h2 { font-family: var(--font-display); font-size: 1.1rem; margin: 0 0 10px; display: flex; align-items: center; gap: 8px; }
+.col h2 .pill { font-family: var(--font-mono); font-size: 0.8rem; padding: 2px 9px; border-radius: 99px; }
+.col.good h2 .pill { background: var(--good-bg); color: var(--good); }
+.col.bad h2 .pill { background: var(--bad-bg); color: var(--bad); }
+.col.good { --edge: var(--good); } .col.bad { --edge: var(--bad); }
+ul.items { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+li.item { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--edge); border-radius: 6px; padding: 10px 12px; min-width: 0; }
+.item .name { font-weight: 600; color: var(--fg); text-decoration: none; overflow-wrap: anywhere; }
+.item .name:hover { text-decoration: underline; }
+.item .meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.tag { font-size: 0.74rem; padding: 1px 8px; border-radius: 99px; background: var(--surface-2); color: var(--muted); text-transform: capitalize; }
+.tag.fibre { background: var(--badge-bg); color: var(--badge); font-weight: 600; text-transform: none; }
+.mats { font-family: var(--font-mono); font-size: 0.78rem; color: var(--muted); margin-top: 6px; overflow-wrap: anywhere; }
+details { margin-top: 6px; }
+summary { cursor: pointer; font-size: 0.8rem; color: var(--ink); }
+details p { margin: 6px 0 0; font-size: 0.85rem; color: var(--fg); }
+.empty { padding: 28px 16px; text-align: center; color: var(--muted); border: 1px dashed var(--line); border-radius: 8px; }
+.empty b { display: block; color: var(--fg); font-family: var(--font-display); font-size: 1.05rem; margin-bottom: 4px; }
+.none { color: var(--muted); font-size: 0.9rem; padding: 10px 0; }
+@media (prefers-reduced-motion: no-preference) { li.item { transition: border-color .15s; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="title-row">
+      <h1>Sustainable Clothing Finder</h1>
+      <span class="stamp" id="stamp">Loading results…</span>
+    </div>
+    <div class="controls">
+      <div class="tabs" role="tablist" aria-label="Brand" id="tabs"></div>
+      <label class="sel" for="run">Run <select id="run"></select></label>
+      <div class="chips" id="genders" role="group" aria-label="Gender"></div>
+      <button class="btn" id="refresh" type="button">Refresh</button>
+    </div>
+  </header>
+  <main id="main"><div class="empty"><b>Loading results</b>Reading the results sheet from Google Drive.</div></main>
+</div>
+
+<script>
+(function () {
+  var SHEET_ID = "YOUR_GOOGLE_SHEET_ID";
+  var BRANDS = [{ key: "Sessun", label: "Sessùn" }, { key: "Filippa K", label: "Filippa K" }];
+  var GENDERS = [["", "All"], ["female", "Women"], ["male", "Men"], ["unisex", "Unisex"]];
+  var state = { rows: [], brand: "Sessun", run: "", gender: "", loaded: false, error: null, storedAt: null };
+  var $ = function (id) { return document.getElementById(id); };
+
+  try { var sb = localStorage.getItem("scf-brand"); if (sb) state.brand = sb; } catch (e) {}
+
+  function parseCSV(text) {
+    var rows = [], row = [], f = "", q = false, i = 0;
+    if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+    for (; i < text.length; i++) {
+      var c = text[i];
+      if (q) {
+        if (c === '"') { if (text[i + 1] === '"') { f += '"'; i++; } else q = false; } else f += c;
+      } else if (c === '"') q = true;
+      else if (c === ",") { row.push(f); f = ""; }
+      else if (c === "\n" || c === "\r") { if (c === "\r" && text[i + 1] === "\n") i++; row.push(f); rows.push(row); row = []; f = ""; }
+      else f += c;
+    }
+    if (f !== "" || row.length) { row.push(f); rows.push(row); }
+    if (!rows.length) return [];
+    var head = rows[0].map(function (h) { return h.trim(); });
+    return rows.slice(1).filter(function (r) { return r.some(function (x) { return x.trim(); }); }).map(function (r) {
+      var o = {}; head.forEach(function (h, k) { o[h] = (r[k] || "").trim(); }); return o;
+    });
+  }
+
+  function decodeB64(b64) {
+    var bin = atob(b64), bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new TextDecoder("utf-8").decode(bytes);
+  }
+
+  function runOf(r) {
+    if (r.run_date) return r.run_date;
+    return (r.checked_at || "").slice(0, 10);
+  }
+
+  function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+
+  function errorView(err) {
+    var code = err && err.code, msg;
+    if (code === "needs_reauth") msg = ["Google Drive needs to be reconnected", "Reconnect Google Drive in claude.ai Settings, then press Refresh."];
+    else if (code === "server_not_connected" || code === "selection_required") msg = ["Google Drive is not connected", "Add Google Drive in claude.ai Settings, then reload this page."];
+    else if (code === "not_in_manifest" || code === "consent_required") msg = ["Access to Google Drive was not allowed", "Press Refresh and allow access to read the results sheet."];
+    else if (code === "capability_disabled" || code === "not_granted") msg = ["This view cannot read the sheet", "Open the dashboard in claude.ai to load the results."];
+    else msg = ["The results could not be loaded", (err && err.message ? err.message : "Press Refresh to try again.")];
+    return '<div class="empty"><b>' + esc(msg[0]) + "</b>" + esc(msg[1]) + "</div>";
+  }
+
+  function load(refresh) {
+    $("stamp").textContent = "Loading results…";
+    return claude.use("mcp").then(function (mcp) {
+      if (!mcp) { state.error = { code: "capability_disabled" }; state.loaded = true; return; }
+      return mcp.callTool("Google Drive", "download_file_content", { fileId: SHEET_ID, exportMimeType: "text/csv" },
+        { cache: refresh ? { refresh: true } : false }).then(function (res) {
+        var p = res.payload, b64 = p && typeof p === "object" ? p.content : null;
+        if (!b64) {
+          var t = res.content && res.content[0] && res.content[0].text;
+          try { b64 = JSON.parse(t).content; } catch (e) {}
+        }
+        if (!b64) throw { code: "upstream_error", message: "The sheet came back empty." };
+        state.rows = parseCSV(decodeB64(b64)).filter(function (r) { return r.product_url; });
+        state.error = null; state.loaded = true;
+        state.storedAt = res.cache ? res.cache.storedAt : new Date().getTime();
+      });
+    }).catch(function (e) { state.error = e || {}; state.loaded = true; }).then(function () { pickRun(); render(); });
+  }
+
+  function runs() {
+    var seen = {}, list = [];
+    state.rows.forEach(function (r) { var d = runOf(r); if (d && !seen[d]) { seen[d] = 1; list.push(d); } });
+    return list.sort().reverse();
+  }
+  function pickRun() {
+    var list = runs();
+    if (state.run !== "all" && list.indexOf(state.run) === -1) state.run = list[0] || "all";
+  }
+
+  function inScope() {
+    return state.rows.filter(function (r) { return state.run === "all" || runOf(r) === state.run; });
+  }
+
+  function renderControls() {
+    var base = inScope();
+    $("tabs").innerHTML = BRANDS.map(function (b) {
+      var n = base.filter(function (r) { return r.shop === b.key; }).length;
+      return '<button class="tab" role="tab" type="button" data-brand="' + esc(b.key) + '" aria-selected="' + (state.brand === b.key) + '">' + esc(b.label) + ' <span class="n">' + n + "</span></button>";
+    }).join("");
+    var list = runs();
+    $("run").innerHTML = '<option value="all">All runs</option>' + list.map(function (d) { return '<option value="' + esc(d) + '">' + esc(d) + "</option>"; }).join("");
+    $("run").value = state.run;
+    $("genders").innerHTML = GENDERS.map(function (g) {
+      return '<button class="chip" type="button" data-gender="' + g[0] + '" aria-pressed="' + (state.gender === g[0]) + '">' + g[1] + "</button>";
+    }).join("");
+  }
+
+  function itemHTML(r) {
+    var tags = "";
+    if (r.gender) tags += '<span class="tag">' + esc(r.gender) + "</span>";
+    if ((r.fibre_highlight || r.cotton_highlight)) tags += '<span class="tag fibre">' + esc((r.fibre_highlight || r.cotton_highlight)) + "</span>";
+    return '<li class="item"><a class="name" href="' + esc(r.product_url) + '" target="_blank" rel="noopener">' + esc(r.product_name || r.product_url) + "</a>" +
+      (tags ? '<div class="meta">' + tags + "</div>" : "") +
+      '<div class="mats">' + esc(r.materials) + "</div>" +
+      (r.assessment ? "<details><summary>Why</summary><p>" + esc(r.assessment) + "</p></details>" : "") + "</li>";
+  }
+
+  function column(cls, title, list) {
+    var body = list.length ? '<ul class="items">' + list.map(itemHTML).join("") + "</ul>" : '<div class="none">None in this view.</div>';
+    return '<section class="col ' + cls + '"><h2>' + title + ' <span class="pill">' + list.length + "</span></h2>" + body + "</section>";
+  }
+
+  function render() {
+    var main = $("main");
+    renderControls();
+    if (state.error && !state.rows.length) { main.innerHTML = errorView(state.error); $("stamp").textContent = "Not loaded"; return; }
+    if (!state.rows.length) {
+      main.innerHTML = '<div class="empty"><b>No results yet</b>The sheet fills after the first weekly run. Results appear here grouped by brand and verdict.</div>';
+      $("stamp").textContent = "Sheet is empty"; return;
+    }
+    var mine = inScope().filter(function (r) { return r.shop === state.brand && (!state.gender || r.gender === state.gender); });
+    var byName = function (x, y) { return (x.product_name || "").localeCompare(y.product_name || ""); };
+    var isYes = function (r) { return String(r.is_sustainable).toUpperCase() === "TRUE"; };
+    var label = (BRANDS.filter(function (b) { return b.key === state.brand; })[0] || {}).label || state.brand;
+    // One block = summary line + Sustainable / Not sustainable columns.
+    var block = function (title, list, big) {
+      var yes = list.filter(isYes).sort(byName), no = list.filter(function (r) { return !isYes(r); }).sort(byName);
+      var pct = list.length ? Math.round(100 * yes.length / list.length) : 0;
+      return '<section class="gsec"><div class="summary">' + (big ? "<strong>" : '<h2 class="gh">') + title + (big ? "</strong>" : "</h2>") +
+        "<span>" + yes.length + " of " + list.length + " pass" + (list.length ? " (" + pct + "%)" : "") + "</span>" +
+        (list.length ? '<div class="meter" aria-hidden="true"><i style="width:' + pct + '%"></i></div>' : "") + "</div>" +
+        '<div class="cols">' + column("good", "Sustainable", yes) + column("bad", "Not sustainable", no) + "</div></section>";
+    };
+    var html = "";
+    if (state.error) html += errorView(state.error);
+    if (!mine.length) html += '<div class="empty"><b>Nothing here</b>No ' + esc(label) + " products match this run and filter.</div>";
+    else if (state.brand === "Filippa K") {
+      // Filippa K sells both lines: show women's and men's as separate sections (unisex pieces get their own).
+      var groups = [["female", "Women"], ["male", "Men"], ["unisex", "Unisex"]];
+      var known = groups.map(function (g) { return g[0]; });
+      groups.forEach(function (g) {
+        var l = mine.filter(function (r) { return r.gender === g[0]; });
+        if (l.length) html += block(g[1], l, false);
+      });
+      var rest = mine.filter(function (r) { return known.indexOf(r.gender) < 0; });
+      if (rest.length) html += block("Other", rest, false);
+    } else {
+      var all = mine.filter(isYes).length;
+      html += block(all + " of " + mine.length + " " + esc(label) + " products pass", mine, true).replace(/<span>[^<]*<\/span>/, "");
+    }
+    main.innerHTML = html;
+    var t = state.storedAt ? new Date(state.storedAt) : null;
+    $("stamp").textContent = t ? "Updated " + t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) + " · " + state.rows.length + " products in sheet" : "";
+  }
+
+  $("tabs").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-brand]"); if (!b) return;
+    state.brand = b.getAttribute("data-brand");
+    try { localStorage.setItem("scf-brand", state.brand); } catch (x) {}
+    render();
+  });
+  $("genders").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-gender]"); if (!b) return;
+    state.gender = b.getAttribute("data-gender"); render();
+  });
+  $("run").addEventListener("change", function () { state.run = $("run").value; render(); });
+  $("refresh").addEventListener("click", function () { load(true); });
+
+  state.run = "";
+  load(false);
+})();
+</script>
